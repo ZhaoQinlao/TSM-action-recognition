@@ -1,0 +1,7 @@
+data/
+.vscode/
+**/__pycache__/
+*.py[cod]
+log/
+pretrained_models/
+data_mod/
