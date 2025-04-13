@@ -283,6 +283,33 @@ class TSN(nn.Module):
                 base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
             output = self.consensus(base_out)
             return output.squeeze(1)
+        
+
+    def forward(self, input, no_reshape=False):
+        if not no_reshape:
+            sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
+
+            if self.modality == 'RGBDiff':
+                sample_len = 3 * self.new_length
+                input = self._get_diff(input)
+
+            base_out = self.base_model(input.view((-1, sample_len) + input.size()[-2:]))
+        else:
+            base_out = self.base_model(input)
+
+        if self.dropout > 0:
+            base_out = self.new_fc(base_out)
+
+        if not self.before_softmax:
+            base_out = self.softmax(base_out)
+
+        if self.reshape:
+            if self.is_shift and self.temporal_pool:
+                base_out = base_out.view((-1, self.num_segments // 2) + base_out.size()[1:])
+            else:
+                base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
+            output = self.consensus(base_out)
+            return output.squeeze(1)
 
     def extract_feature(self, input, no_reshape=False):
         if not no_reshape:

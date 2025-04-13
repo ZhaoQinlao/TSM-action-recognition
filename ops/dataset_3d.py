@@ -9,6 +9,7 @@ import torch
 from torch.utils import data
 from tqdm import tqdm
 from PIL import Image
+from torch.nn.utils.rnn import pad_sequence
 
 class VideoRecord(object):
     def __init__(self, row):
@@ -72,43 +73,10 @@ class TSNDataSet(data.Dataset):
             x[0] = self.root_path + x[0]
         self.video_list = [VideoRecord(x) for x in tmp]
 
-    def _sample_indices(self, record):
-        """
-        :param record: VideoRecord
-        :return: list
-        """
-        average_duration = (record.num_frames - self.new_length + 1) // self.num_segments
-        if average_duration > 0:
-            offsets = np.multiply(list(range(self.num_segments)), average_duration) + randint(average_duration, size=self.num_segments)
-        elif record.num_frames > self.num_segments:
-            offsets = np.sort(randint(record.num_frames - self.new_length + 1, size=self.num_segments))
-        else:
-            offsets = np.zeros((self.num_segments,))
-        
-        return offsets + record.start_frames
-
-    def _get_val_indices(self, record):
-        if record.num_frames > self.num_segments + self.new_length - 1:
-            tick = (record.num_frames - self.new_length + 1) / float(self.num_segments)
-            offsets = np.array([int(tick / 2.0 + tick * x) for x in range(self.num_segments)])
-        else:
-            offsets = np.zeros((self.num_segments,))
-
-        return offsets + record.start_frames
-
-    def _get_test_indices(self, record):
-        tick = (record.num_frames - self.new_length + 1) / float(self.num_segments)
-        offsets = np.array([int(tick / 2.0 + tick * x) for x in range(self.num_segments)])
-        return offsets + record.start_frames
 
     def __getitem__(self, index):
         record = self.video_list[index]
-
-        if not self.test_mode:
-            segment_indices = self._sample_indices(record) if self.random_shift else self._get_val_indices(record)
-        else:
-            segment_indices = self._get_test_indices(record)
-
+        segment_indices = np.arange(record.num_frames - self.new_length + 1) + record.start_frames
         return self.get(record, segment_indices)
 
     def get(self, record, indices):
@@ -127,16 +95,31 @@ class TSNDataSet(data.Dataset):
     def __len__(self):
         return len(self.video_list)
 
+    @staticmethod
+    def collate_fn(batch):
+        # rnn padding
+        data = [item[0] for item in batch]
+        data = pad_sequence(data, batch_first=True)
+        labels = [item[1] for item in batch]
+        return data, labels
+
 
 if __name__ == "__main__":
     # 使用示例
+    from transforms import *
     video_dataset = TSNDataSet(
         root_path='/home/fitz_joye/assembly101-action-recognition/TSM-action-recognition/data/images/',
         list_file='/home/fitz_joye/assembly101-action-recognition/TSM-action-recognition/data/test_combined.txt',
         num_segments=8,
         new_length=1,
         modality='RGB',
-        transform=lambda x: x,  # 示例转换
+        transform=torchvision.transforms.Compose([
+                       GroupScale(int(224)),
+                       GroupCenterCrop(224),
+                       Stack(roll=False),
+                       ToTorchFormatTensor(div=False),
+                       GroupNormalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+                   ]),
         random_shift=True,
         test_mode=False
     )
@@ -145,11 +128,16 @@ if __name__ == "__main__":
         video_dataset,
         batch_size=16,
         shuffle=True,
-        num_workers=4,
-        pin_memory=True
+        num_workers=0,
+        pin_memory=True,
+        collate_fn=video_dataset.collate_fn
     )
 
     for i in video_dataset:
         print(i[0].shape)
         break
     # print(video_dataset[0])
+
+    for i in dataloader:
+        print(i[0].shape)
+        break
