@@ -150,6 +150,9 @@ if __name__ == "__main__":
     )
 
     for i in video_dataset:
+        break
+
+    for i in dataloader:
         print(i[0].shape)
         break
     # print(video_dataset[0])
