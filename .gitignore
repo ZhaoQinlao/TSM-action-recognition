@@ -8,3 +8,5 @@ data_mod/
 
 
 !data/*combined*.txt
+workdir
+TAD/part_*.txt

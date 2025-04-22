@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>实时人体动作检测</title>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <style>
+        /* 使用flexbox布局 */
+        .container {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+
+        .video-container {
+            width: 30%;  /* 左右两部分占30%宽度 */
+            text-align: center;
+        }
+
+        #video {
+            width: 100%; /* 摄像头画面填满容器 */
+            border: 1px solid black;
+        }
+
+        #output {
+            width: 100%; /* 处理后的画面填满容器 */
+            height: auto;
+            border: 1px solid black;
+        }
+
+        button {
+            margin: 10px;
+        }
+
+        #startBtn:disabled, #stopBtn:disabled {
+            background-color: #ccc;
+        }
+    </style>
+</head>
+<body>
+    <h1>实时人体动作检测 Demo</h1>
+
+    <div>
+        <button id="startBtn">开始</button>
+        <button id="stopBtn" disabled>停止</button>
+    </div>
+
+    <!-- 使用flex布局并排显示摄像头画面和处理后的画面 -->
+    <div class="container">
+        <div class="video-container">
+            <h2>摄像头画面</h2>
+            <video id="video" autoplay></video>
+        </div>
+        <div class="video-container">
+            <h2>处理后画面</h2>
+            <img id="output" alt="Processed Video" />
+        </div>
+    </div>
+    
+    <script>
+        // 设置WebSocket连接
+        const socket = io.connect('http://' + document.domain + ':' + location.port);
+
+        const video = document.getElementById('video');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        let stream = null;
+        let captureInterval = null;
+
+        // 获取用户摄像头视频流
+        function startStream() {
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(function(mediaStream) {
+                    video.srcObject = mediaStream;
+                    stream = mediaStream;
+                    startBtn.disabled = true;  // 禁用开始按钮
+                    stopBtn.disabled = false;  // 启用停止按钮
+
+                    // 每100ms捕获一帧并发送
+                    captureInterval = setInterval(captureFrame, 100);
+                })
+                .catch(function(error) {
+                    console.log("Error accessing camera: ", error);
+                });
+        }
+
+        // 停止视频流
+        function stopStream() {
+            if (stream) {
+                const tracks = stream.getTracks();
+                tracks.forEach(track => track.stop());  // 停止所有视频轨道
+                video.srcObject = null;
+                startBtn.disabled = false;  // 启用开始按钮
+                stopBtn.disabled = true;    // 禁用停止按钮
+            }
+            if (captureInterval) {
+                clearInterval(captureInterval);  // 停止捕获视频帧
+            }
+        }
+
+        // 捕获视频帧并发送到后端
+        function captureFrame() {
+            const targetSize = 224;
+
+            // 设置 canvas 尺寸为目标大小
+            canvas.width = targetSize;
+            canvas.height = targetSize;
+
+            // 计算裁剪区域，获取正方形中心部分
+            const videoWidth = video.videoWidth;
+            const videoHeight = video.videoHeight;
+            const minSize = Math.min(videoWidth, videoHeight);
+            const cropX = (videoWidth - minSize) / 2;
+            const cropY = (videoHeight - minSize) / 2;
+
+            // 从摄像头画面中裁剪并缩放到 224x224
+            context.drawImage(video, cropX, cropY, minSize, minSize, 0, 0, targetSize, targetSize);
+
+            // 将 canvas 内容转换为 Blob 并发送
+            canvas.toBlob(function(blob) {
+                const reader = new FileReader();
+                reader.onloadend = function() {
+                    const arrayBuffer = reader.result;
+                    socket.emit('video_stream', arrayBuffer);
+                };
+                reader.readAsArrayBuffer(blob);
+            }, 'image/jpeg');
+        }
+
+
+        // 启动按钮点击事件
+        startBtn.addEventListener('click', startStream);
+
+        // 停止按钮点击事件
+        stopBtn.addEventListener('click', stopStream);
+
+        // 接收后端处理的结果并显示
+        socket.on('video_response', function(data) {
+            const img = document.getElementById('output');
+            const arrayBufferView = new Uint8Array(data);
+            const blob = new Blob([arrayBufferView], { type: "image/jpeg" });
+            const imageUrl = URL.createObjectURL(blob);
+            img.src = imageUrl;
+        });
+    </script>
+</body>
+</html>
