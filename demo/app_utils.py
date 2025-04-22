@@ -4,7 +4,9 @@ import torch
 from torchvision.transforms import v2
 import matplotlib.pyplot as plt
 import numpy as np
-
+from decord import VideoReader, cpu
+import gradio as gr
+from tqdm import tqdm
 
 from ops.models import TSN
 
@@ -43,6 +45,7 @@ def extract_frame_feature(frame):
     # H, W, C
     with torch.no_grad():
         # print(frame.shape)
+        frame = np.copy(frame)
         frame = torch.from_numpy(frame)
         frame = transform(frame.cuda().permute(2, 0, 1))  # [3, 224, 224]
         # print(frame.shape)
@@ -54,9 +57,27 @@ class Extractor():
     def __init__(self):
         self.features = []
 
-    def extract_videos(self, frame):
+    def extract_frame(self, frame):
         self.features.append(extract_frame_feature(frame))
         return np.stack(self.features)
+
+    def extract_video(self, video_path:str, progress=gr.Progress()):
+        assert os.path.exists(video_path), f"File not found: {video_path}"
+        vr = VideoReader(video_path, ctx=cpu(0))
+
+        feature_list = []
+        for idx in progress.tqdm(range(len(vr)), desc='Video: '):
+            data = vr.get_batch(np.array([idx])).asnumpy()
+            data = torch.from_numpy(data).to('cuda').permute(0,3,1,2)  # [8, 3, 384, 224]
+            images = [transform(frame) for frame in data]  # 每帧单独处理
+            input_data = torch.stack(images, dim=0)  # [8, 3, 224, 224]
+
+            with torch.no_grad():
+                feature = net.extract_feature(input_data).mean(dim=0)
+                feature_list.append(feature.cpu().numpy())
+        feature_list = np.stack(feature_list)
+        self.features = feature_list # NOTE: save features
+        return feature_list
     
     def clear(self):
         self.features = []
@@ -65,7 +86,9 @@ class Extractor():
     
 if __name__ == '__main__':
     extractor = Extractor()
-    for i in range(3):
-        dummy_input = torch.randn(224, 224, 3)
-        output = extractor.extract_videos(dummy_input)
-        print(output.shape)
+    # for i in range(3):
+    #     dummy_input = torch.randn(224, 224, 3)
+    #     output = extractor.extract_frame(dummy_input)
+    #     print(output.shape)
+    outputs = extractor.extract_video('/home/fitz_joye/TSM-action-recognition/data/assembly101/resized/nusar-2021_action_both_9023-c09c_9023_user_id_2021-02-23_134459/HMC_84358933_mono10bit.mp4')
+    print(outputs.shape)

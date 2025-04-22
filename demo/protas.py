@@ -315,38 +315,66 @@ for i, action in enumerate(actions):
 
 model = MultiStageModel(num_stages=4, num_layers=10, num_f_maps=64,
                             dim=2048, num_classes=202, causal=True,
-                            use_graph=False, init_graph_path=graph_path)
+                            use_graph=True, init_graph_path=graph_path)
 model = model.cuda()
-model.load_state_dict(torch.load("/home/fitz_joye/ProTAS/experiments/assembly101/epoch-50.model"), strict=False)
+missing_keys, unexpected_keys = model.load_state_dict(torch.load("/home/fitz_joye/ProTAS/experiments/assembly101/epoch-50.model"), strict=False)
+print("Missing keys:", missing_keys)
+print("Unexpected keys:", unexpected_keys)
+print("################# ProTAS Model loaded ################")
 model.eval()
 
+@torch.no_grad()
 def predict_online_api(feat:np.ndarray):
     # feat: (N, 2048)
-    input_x = torch.tensor(feat[-1], dtype=torch.float).T.unsqueeze(0).cuda()
+    input_x = torch.tensor(feat[-1], dtype=torch.float).unsqueeze(0).unsqueeze(0).cuda()
     device = torch.device("cuda")    
     
-    curr_input_x = input_x
+    curr_input_x = input_x.permute(0,2,1)
     predictions, progress_predictions = model(curr_input_x, torch.ones(curr_input_x.size(), device=device))
     final_predictions = model.graph_learner.inference(predictions[-1], progress_predictions[-1])
     _, predicted = torch.max(final_predictions.data, 1)
     predicted = predicted.squeeze(0)
     recognition = actions_dict[predicted[-1].item()]
     return recognition
-    
 
+@torch.no_grad()
+def predict(feat:np.ndarray):
+    # feat: (N, 2048)
+    feat = np.copy(feat).T
+    input_x = torch.tensor(feat, dtype=torch.float).unsqueeze(0).cuda()
+    device = torch.device("cuda")
+
+    predictions, progress_predictions = model(input_x, torch.ones(input_x.size(), device=device))
+    final_predictions = model.graph_learner.inference(predictions[-1], progress_predictions[-1])
+    _, predicted = torch.max(final_predictions.data, 1)
+    predicted = predicted.squeeze()
+    recognition = []
+    for i in range(len(predicted)):
+        recognition = np.concatenate((recognition, [list(actions_dict.keys())[list(actions_dict.values()).index(predicted[i].item())]]))
+    return set(list(recognition))
+
+    
+def predict_offline_api(feat:np.ndarray):
+    raise NotImplementedError("Offline prediction is not implemented yet.")
+    # feat: (N, 2048)
+    input_x = torch.tensor(feat[-1], dtype=torch.float).unsqueeze(0).cuda()
+    device = torch.device("cuda")    
+    
+    curr_input_x = input_x.permute(0,2,1)
+    predictions, progress_predictions = model(curr_input_x, torch.ones(curr_input_x.size(), device=device))
+    final_predictions = model.graph_learner.inference(predictions[-1], progress_predictions[-1])
+    _, predicted = torch.max(final_predictions.data, 1)
+    predicted = predicted.squeeze(0)
+    recognition = [actions_dict[predict.item()] for predict in predicted]
+    return recognition
 
 
 
 
 if __name__ == "__main__":
-    num_classes = 202 # depend on the dataset
-    seq_len = 150
-    B = 4
-    model = MultiStageModel(num_stages=4, num_layers=10, num_f_maps=64,
-                            dim=2048, num_classes=num_classes, causal=True,
-                            use_graph=False)
-    dummy_input = torch.randn(B, 2048, seq_len)  # Example input
-    dummy_mask = torch.ones(B, num_classes, seq_len)  # Example mask
-    output, progress_out = model(dummy_input, dummy_mask)
-    print("Output shape:", output.shape)
-    print("Progress output shape:", progress_out.shape)
+    # feats = np.load('/home/fitz_joye/TSM-action-recognition/gradio_features.npy')
+    feats = np.load('/home/fitz_joye/TSM-action-recognition/input_x.npy')
+    feats = torch.tensor(feats, dtype=torch.float).squeeze(0).permute(1,0)
+    feats = feats.cpu().numpy()
+    recognition = predict(feats)
+    print(','.join(recognition))
