@@ -9,4 +9,4 @@ python extract_features.py \
     --data_set Assembly101 \
     --data_path data/assembly101/resized \
     --data_list TAD/part_0.txt \
-    --save_path workdir/assembly101_tsm_feature \
+    --save_path workdir/assembly101_tsm_feature_48f \

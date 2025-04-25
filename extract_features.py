@@ -79,6 +79,9 @@ def get_start_idx_range(data_set):
 
     def fineaction_range(num_frames):
         return range(0, num_frames - 15, 16)
+    
+    def assembly101_range(num_frames):
+        return range(0, num_frames - 47, 4)
 
     if data_set == 'THUMOS14':
         return thumos14_range
@@ -118,7 +121,7 @@ def extract_feature(args):
 
         feature_list = []
         for start_idx in tqdm(start_idx_range(len(vr)), ncols=80, desc='Video: '):
-            data = vr.get_batch(np.arange(start_idx, start_idx + 8)).asnumpy()
+            data = vr.get_batch(np.arange(start_idx, start_idx + 48, 6)).asnumpy()
             data = torch.from_numpy(data).to('cuda').permute(0,3,1,2)  # [8, 3, 384, 224]
             images = [transform(frame) for frame in data]  # 每帧单独处理
             input_data = torch.stack(images, dim=0)  # [8, 3, 224, 224]

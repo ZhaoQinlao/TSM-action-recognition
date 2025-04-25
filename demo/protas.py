@@ -317,7 +317,7 @@ model = MultiStageModel(num_stages=4, num_layers=10, num_f_maps=64,
                             dim=2048, num_classes=202, causal=True,
                             use_graph=True, init_graph_path=graph_path)
 model = model.cuda()
-missing_keys, unexpected_keys = model.load_state_dict(torch.load("/home/fitz_joye/ProTAS/experiments/assembly101/epoch-50.model"), strict=False)
+missing_keys, unexpected_keys = model.load_state_dict(torch.load("/home/fitz_joye/ProTAS/experiments/assembly101_8f/epoch-50.model"), strict=False)
 print("Missing keys:", missing_keys)
 print("Unexpected keys:", unexpected_keys)
 print("################# ProTAS Model loaded ################")
@@ -372,9 +372,10 @@ def predict_offline_api(feat:np.ndarray):
 
 
 if __name__ == "__main__":
-    # feats = np.load('/home/fitz_joye/TSM-action-recognition/gradio_features.npy')
-    feats = np.load('/home/fitz_joye/TSM-action-recognition/input_x.npy')
-    feats = torch.tensor(feats, dtype=torch.float).squeeze(0).permute(1,0)
-    feats = feats.cpu().numpy()
+    feats = np.load('/home/fitz_joye/TSM-action-recognition/input_multi.npy')
+    print(feats.shape)
+    # feats = np.load('/home/fitz_joye/TSM-action-recognition/input_x.npy')
+    # feats = torch.tensor(feats, dtype=torch.float).squeeze(0).permute(1,0)
+    # feats = feats.cpu().numpy()
     recognition = predict(feats)
-    print(','.join(recognition))
+    print(set(recognition))
