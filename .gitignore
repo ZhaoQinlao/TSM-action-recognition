@@ -17,3 +17,5 @@ input_x.npy
 data/train_combined.txt
 data/train_combined.txt
 data/train_combined.txt
+
+*.pt
