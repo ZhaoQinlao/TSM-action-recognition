@@ -36,7 +36,7 @@ class TSNDataSet(data.Dataset):
                  num_segments=3, new_length=1, modality='RGB',
                  image_tmpl='frame_{:010d}.jpg', transform=None,
                  force_grayscale=False, random_shift=True, 
-                 dense_sample=False, test_mode=False):
+                 dense_sample=False, test_mode=False, semantic=False):
 
         self.root_path = root_path
         self.list_file = list_file
@@ -47,12 +47,18 @@ class TSNDataSet(data.Dataset):
         self.transform = transform
         self.random_shift = random_shift
         self.test_mode = test_mode
+        self.semantic = semantic
 
         if self.modality == 'RGBDiff':
             # Diff needs one more image to calculate diff
             self.new_length += 1
 
         self._parse_list()
+
+        if self.semantic:
+            self.semantic_embedding = torch.load('/home/fitz_joye/TSM-action-recognition/clip_embedding/clip_embeddings.pt')
+
+    
 
     def _load_image(self, directory, idx):
         if self.modality == 'RGB' or self.modality == 'RGBDiff':
@@ -122,7 +128,10 @@ class TSNDataSet(data.Dataset):
                     p += 1
 
         process_data = self.transform(images)
-        return process_data, record.label
+        if not self.semantic:
+            return process_data, record.label
+        else:
+            return process_data, (record.label, self.semantic_embedding[record.label])
 
     def __len__(self):
         return len(self.video_list)

@@ -63,9 +63,10 @@ def main():
                 partial_bn=not args.no_partialbn,
                 pretrain=args.pretrain,
                 is_shift=args.shift, shift_div=args.shift_div, shift_place=args.shift_place,
-                fc_lr5=not (args.tune_from and args.dataset in args.tune_from),
+                fc_lr5=not (args.tune_from and args.dataset in args.tune_from) or args.semantic,
                 temporal_pool=args.temporal_pool,
-                non_local=args.non_local)
+                non_local=args.non_local,
+                semantic=args.semantic)
 
     crop_size = model.crop_size
     scale_size = model.scale_size
@@ -156,7 +157,7 @@ def main():
                        Stack(roll=(args.arch in ['BNInception', 'InceptionV3'])),
                        ToTorchFormatTensor(div=(args.arch not in ['BNInception', 'InceptionV3'])),
                        normalize,
-                   ]), dense_sample=args.dense_sample),
+                   ]), dense_sample=args.dense_sample, semantic=args.semantic),
         batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=True,
         drop_last=True)  # prevent something not % n_GPU
@@ -173,13 +174,17 @@ def main():
                        Stack(roll=(args.arch in ['BNInception', 'InceptionV3'])),
                        ToTorchFormatTensor(div=(args.arch not in ['BNInception', 'InceptionV3'])),
                        normalize,
-                   ]), dense_sample=args.dense_sample),
+                   ]), dense_sample=args.dense_sample, semantic=args.semantic),
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
 
     # define loss function (criterion) and optimizer
-    if args.loss_type == 'nll':
+    if args.loss_type == 'nll' and not args.semantic:
         criterion = torch.nn.CrossEntropyLoss().cuda()
+    elif args.loss_type == 'nll' and args.semantic:
+        criterion = torch.nn.CrossEntropyLoss().cuda()
+        semantic_criterion = torch.nn.CosineEmbeddingLoss().cuda()
+        criterion = (criterion, semantic_criterion)
     else:
         raise ValueError("Unknown loss type")
 
@@ -243,15 +248,31 @@ def train(train_loader, model, criterion, optimizer, epoch, log, tf_writer):
         # measure data loading time
         data_time.update(time.time() - end)
 
-        target = target.cuda()
+        
         input_var = torch.autograd.Variable(input)
-        target_var = torch.autograd.Variable(target)
+        if not args.semantic:
+            target = target.cuda()
+            target_var = torch.autograd.Variable(target)
+        else:
+            target = target[0].cuda(), target[1].cuda()
+            target_var = torch.autograd.Variable(target[0])
+            semantic_var = torch.autograd.Variable(target[1])
 
         # compute output
         output = model(input_var)
-        loss = criterion(output, target_var)
+        if args.semantic:
+            output, semantic = output
+            ce_criterion, semantic_criterion = criterion
+            loss = ce_criterion(output, target_var)
+            semantic_loss = semantic_criterion(semantic, semantic_var, torch.ones(semantic.size(0)).cuda())
+            loss = loss + args.semantic_weight * semantic_loss
+        else:
+            loss = criterion(output, target_var)
+        
 
         # measure accuracy and record loss
+        if args.semantic:
+            target = target[0]
         prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
         losses.update(loss.item(), input.size(0))
         top1.update(prec1.item(), input.size(0))
@@ -302,13 +323,25 @@ def validate(val_loader, model, criterion, epoch, log=None, tf_writer=None):
     end = time.time()
     with torch.no_grad():
         for i, (input, target) in enumerate(val_loader):
-            target = target.cuda()
+            if not args.semantic:
+                target = target.cuda()
+            else:
+                target = target[0].cuda(), target[1].cuda()
 
             # compute output
             output = model(input)
-            loss = criterion(output, target)
+            if args.semantic:
+                output, semantic = output
+                ce_criterion, semantic_criterion = criterion
+                loss = ce_criterion(output, target[0])
+                semantic_loss = semantic_criterion(semantic, target[1], torch.ones(semantic.size(0)).cuda())
+                loss = loss + args.semantic_weight * semantic_loss
+            else:
+                loss = criterion(output, target[0])
 
             # measure accuracy and record loss
+            if args.semantic:
+                target = target[0]
             prec1, prec5 = accuracy(output.data, target, topk=(1, 5))
 
             losses.update(loss.item(), input.size(0))

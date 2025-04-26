@@ -15,7 +15,7 @@ class TSN(nn.Module):
                  dropout=0.8, img_feature_dim=256,
                  crop_num=1, partial_bn=True, print_spec=True, pretrain='imagenet',
                  is_shift=False, shift_div=8, shift_place='blockres', fc_lr5=False,
-                 temporal_pool=False, non_local=False):
+                 temporal_pool=False, non_local=False, semantic=False):
         super(TSN, self).__init__()
         self.modality = modality
         self.num_segments = num_segments
@@ -34,6 +34,7 @@ class TSN(nn.Module):
         self.fc_lr5 = fc_lr5
         self.temporal_pool = temporal_pool
         self.non_local = non_local
+        self.semantic = semantic
 
         if not before_softmax and consensus_type != 'avg':
             raise ValueError("Only avg consensus can be used after Softmax")
@@ -75,6 +76,14 @@ class TSN(nn.Module):
         self._enable_pbn = partial_bn
         if partial_bn:
             self.partialBN(True)
+
+        if semantic:
+            self.semantic_head = nn.Sequential(
+                nn.Linear(feature_dim, 1024),
+                nn.Dropout(0.1),
+                nn.Tanh(),
+                nn.Linear(1024, 512),
+            )
 
     def _prepare_tsn(self, num_class):
         feature_dim = getattr(self.base_model, self.base_model.last_layer_name).in_features
@@ -270,6 +279,12 @@ class TSN(nn.Module):
         else:
             base_out = self.base_model(input)
 
+        if self.semantic:
+            avg_base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:]).mean(1)
+            semantic_output = self.semantic_head(avg_base_out)
+            semantic_output = torch.nn.functional.normalize(semantic_output, p=2, dim=1)
+            
+
         if self.dropout > 0:
             base_out = self.new_fc(base_out)
 
@@ -279,37 +294,13 @@ class TSN(nn.Module):
         if self.reshape:
             if self.is_shift and self.temporal_pool:
                 base_out = base_out.view((-1, self.num_segments // 2) + base_out.size()[1:])
-            else:
+            else: # here
                 base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
             output = self.consensus(base_out)
+            if self.semantic:
+                return output.squeeze(1), semantic_output
             return output.squeeze(1)
         
-
-    def forward(self, input, no_reshape=False):
-        if not no_reshape:
-            sample_len = (3 if self.modality == "RGB" else 2) * self.new_length
-
-            if self.modality == 'RGBDiff':
-                sample_len = 3 * self.new_length
-                input = self._get_diff(input)
-
-            base_out = self.base_model(input.view((-1, sample_len) + input.size()[-2:]))
-        else:
-            base_out = self.base_model(input)
-
-        if self.dropout > 0:
-            base_out = self.new_fc(base_out)
-
-        if not self.before_softmax:
-            base_out = self.softmax(base_out)
-
-        if self.reshape:
-            if self.is_shift and self.temporal_pool:
-                base_out = base_out.view((-1, self.num_segments // 2) + base_out.size()[1:])
-            else:
-                base_out = base_out.view((-1, self.num_segments) + base_out.size()[1:])
-            output = self.consensus(base_out)
-            return output.squeeze(1)
 
     def extract_feature(self, input, no_reshape=False):
         if not no_reshape:
