@@ -15,7 +15,8 @@ gradio_features.npy
 output_segment.mp4
 input_x.npy
 data/train_combined.txt
-
+mycode/
 
 *.pt
 data/__train_combined.txt
+demo/ops
